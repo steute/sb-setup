@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CA_DIR="${SCRIPT_DIR}/ca"
 MOSQUITTO_DIR="${SCRIPT_DIR}/mosquitto"
 POSTGRES_DIR="${SCRIPT_DIR}/postgres"
+TRAEFIK_DIR="${SCRIPT_DIR}/traefik"
 
 # Functions
 print_error() {
@@ -106,6 +107,11 @@ handle_reset() {
         if [[ -d "${SCRIPT_DIR}/secrets" ]]; then
             rm -rf "${SCRIPT_DIR}/secrets"
             print_success "Removed secrets directory"
+        fi
+
+        if [[ -d "$TRAEFIK_DIR" ]]; then
+            rm -rf "$TRAEFIK_DIR"
+            print_success "Removed traefik directory"
         fi
         
         if [[ -f "${SCRIPT_DIR}/docker-compose.yml" ]]; then
@@ -250,10 +256,15 @@ create_mqtt_broker_certificate() {
         -out mosquitto/mqtt-broker-internal.pem -days 7300 -sha256 \
         -extfile <(printf "subjectAltName=DNS:mosquitto,DNS:localhost,DNS:host.docker.internal,IP:127.0.0.1")
 
-    # The key file will be created with permissions 600 by default, which is good for security, but 
-    # the broker wont be able to read it if we run the broker as a non-root user (which is the default for the eclipse-mosquitto image).
-    # To avoid permission issues, we set the permissions to 644.
-    chmod 644 mosquitto/mqtt-broker-internal-key.pem
+    # Private keys need to be readable by root and the group of the process running the container with permissions 640
+    chmod 640 mosquitto/mqtt-broker-internal-key.pem
+    if [[ "$USE_DHI_IO" == false ]]; then
+        # If not using dhi.io, we assume the mosquitto container will run with user 1883
+        sudo chown "0:1883" mosquitto/mqtt-broker-internal-key.pem
+    else
+        # If using dhi.io, the mosquitto container runs with user 65532 (nobody), so we set group ownership to 65532
+        sudo chown "0:65532" mosquitto/mqtt-broker-internal-key.pem
+    fi
     
     print_success "MQTT broker certificate created"
     print_info "MQTT broker certificate: ${SCRIPT_DIR}/mosquitto/mqtt-broker-internal.pem"
@@ -285,9 +296,8 @@ setup_mosquitto_password() {
     print_success "MQTT password generated and stored in secrets/mqtt_password.txt"
     
     # Create mosquitto password file
-    # Do not set permissions, because it is a complex topic that varies if you use DHI or not.
-    # We live with the warnings for now.
-    touch "$MOSQUITTO_DIR/mosquitto.pass"
+    print_info "Creating Mosquitto password file with mosquitto_passwd tool..."
+    sudo touch "$MOSQUITTO_DIR/mosquitto.pass"
     
     # Run mosquitto_passwd inside the container
     print_info "Creating Mosquitto password file with mqtt_passwd tool..."
@@ -319,7 +329,9 @@ create_postgres_certificate() {
         -out "$POSTGRES_DIR/postgres-internal.pem" -days 7300 -sha256 \
         -extfile <(printf "subjectAltName=DNS:postgres,DNS:localhost,DNS:host.docker.internal,IP:127.0.0.1")
 
+    # Private keys need to be readable by root and the group of the process running the container with permissions 640
     chmod 640 "$POSTGRES_DIR/postgres-internal-key.pem"
+    sudo chown "0:70" "$POSTGRES_DIR/postgres-internal-key.pem"
 
     print_success "PostgreSQL certificate created"
     print_info "PostgreSQL certificate: ${POSTGRES_DIR}/postgres-internal.pem"
@@ -334,8 +346,9 @@ setup_postgres_config() {
     cp templates/pg_hba.conf "$POSTGRES_DIR/pg_hba.conf"
     mkdir -p "$POSTGRES_DIR/data"
 
-    chown -R "0:70" "$POSTGRES_DIR"
-    chmod 0775 "$POSTGRES_DIR/data"
+    print_info "Changing ownership of postgres folder to group 70 (postgres)..."
+    sudo chown -R 0:70 "$POSTGRES_DIR"
+    sudo chmod 0775 "$POSTGRES_DIR/data"
 
     print_success "PostgreSQL configuration prepared"
 }
@@ -345,9 +358,11 @@ setup_postgres_password() {
     print_info "Creating PostgreSQL password secret..."
 
     mkdir -p "${SCRIPT_DIR}/secrets"
-    openssl rand -base64 32 | tr '+/' '__' | tr -d '=' > "${SCRIPT_DIR}/secrets/postgres_password.txt"
+    openssl rand -base64 32 | tr '+/' '__' | tr -d '=' > "${SCRIPT_DIR}/secrets/postgres_password_pg.txt"
+    # We need a copy, because the file permissions and ownership need to be different for the postgres container and the sensor bridge container
+    cp "${SCRIPT_DIR}/secrets/postgres_password_pg.txt" "${SCRIPT_DIR}/secrets/postgres_password_sb.txt"
 
-    print_success "PostgreSQL password generated and stored in secrets/postgres_password.txt"
+    print_success "PostgreSQL password generated and stored in secrets/postgres_password_pg.txt and secrets/postgres_password_sb.txt"
 }
 
 # 13. Create master key for database encryption
@@ -403,6 +418,73 @@ setup_initial_admin_password() {
     fi
 }
 
+# 15. Setup traefik configuration folder
+setup_traefik_config() {
+    print_info "Setting up Traefik reverse proxy configuration..."
+
+    mkdir -p "$TRAEFIK_DIR"
+    cp templates/traefik-tls-config.yaml "$TRAEFIK_DIR/traefik-tls-config.yaml"
+
+    print_success "Traefik configuration file created"
+}
+
+# 16. Create Traefik reverse proxy certificate signed by CA
+create_traefik_certificate() {
+    print_info "Creating Traefik reverse proxy certificate signed by CA..."
+
+    mkdir -p "$TRAEFIK_DIR"
+
+    print_info "Enter additional SAN entries for Traefik certificate (or press Enter for defaults)"
+    print_info "Default SAN entries: DNS:sensorbridge, DNS:localhost, DNS:host.docker.internal, IP:127.0.0.1"
+    read -p "Additional SAN entries (comma-separated, e.g., DNS:example.com): " -r additional_sans
+    
+    # Build the SAN string
+    local san_string="subjectAltName=DNS:sensorbridge,DNS:localhost,DNS:host.docker.internal,IP:127.0.0.1"
+    if [[ -n "$additional_sans" ]]; then
+        san_string="${san_string},${additional_sans}"
+    fi
+
+    # Create CSR and key for Traefik
+    print_info "Creating certificate signing request for Traefik..."
+    openssl req -new -newkey rsa:2048 -nodes \
+        -keyout "$TRAEFIK_DIR/traefik-external-key.pem" \
+        -out "$TRAEFIK_DIR/traefik-external.csr" \
+        -subj "/C=DE/O=SensorBridge/OU=IoT/CN=sensorbridge.internal.local"
+
+    # Sign with CA (valid for 5 years)
+    print_info "Signing Traefik certificate with CA (valid for 5 years)..."
+    openssl x509 -req -in "$TRAEFIK_DIR/traefik-external.csr" \
+        -CA "${CA_DIR}/sb-root-ca.pem" -CAkey "${CA_DIR}/sb-root-ca.key" -CAcreateserial \
+        -out "$TRAEFIK_DIR/traefik-external.pem" -days 1825 -sha256 \
+        -extfile <(printf "%s" "$san_string")
+
+    # Private keys need to be readable by root and the group of the process running the container with permissions 640
+    sudo chmod 640 "$TRAEFIK_DIR/traefik-external-key.pem"
+    if [[ "$USE_DHI_IO" == false ]]; then
+        # If not using dhi.io, we assume the traefik container will run with user 0
+        sudo chown "0:0" "$TRAEFIK_DIR/traefik-external-key.pem"
+    else
+        # If using dhi.io, the traefik container runs with user 65532
+        sudo chown "0:65532" "${TRAEFIK_DIR}/traefik-external-key.pem"
+    fi
+
+    print_success "Traefik certificate created"
+    print_info "Traefik certificate: ${TRAEFIK_DIR}/traefik-external.pem"
+    print_info "Traefik key: ${TRAEFIK_DIR}/traefik-external-key.pem"
+}
+
+# 17. Set user/guid and permissions for generated files and folders
+set_permissions() {
+    print_info "Setting permissions for generated secrets..."
+
+    # Secrets, used by the Sensor Bridge container, need to be readable by root and group 1000 (root) with permissions 640
+    sudo chown "0:1000" "${SCRIPT_DIR}/secrets"/*.txt
+    sudo chmod 0640 "${SCRIPT_DIR}/secrets"/*.txt
+
+    # The postgres password secret needs to be readable by the postgres user (group 70) with permissions 640
+    sudo chown "0:70" "${SCRIPT_DIR}/secrets/postgres_password_pg.txt"
+}
+
 # Main execution
 main() {
     echo "================================"
@@ -424,6 +506,9 @@ main() {
     setup_postgres_password
     setup_masterkey
     setup_initial_admin_password
+    setup_traefik_config
+    create_traefik_certificate
+    set_permissions
     
     cd "$SCRIPT_DIR"
     

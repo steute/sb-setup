@@ -1,4 +1,0 @@
-tls:
-  certificates:
-    - certFile: "/etc/traefik/steute-sb-internal.pem"
-      keyFile: "/etc/traefik/steute-sb-internal-key.pem"

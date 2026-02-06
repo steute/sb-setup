@@ -169,3 +169,26 @@ If the user chooses to set a custom password, ask him to enter the password and 
 
 Also print the standard username "admin" for the first login.
 
+15. Create a "traefik" folder for the configuration and certificates of the traefik reverse proxy.
+
+Copy the "templates/traefik-tls-config.yaml" file to the "traefik" folder.
+
+16. Create certificates for the traefik reverse proxy, signed by the local CA, and store them in the "traefik" folder.
+
+Ask the user for addional SAN entries for the traefik certificate, which will be used for the web interface of the SensorBridge. The default SAN entries should include at least "DNS:sensorbridge", "DNS:localhost", "DNS:host.docker.internal", and "IP:127.0.0.1".
+
+```bash
+# CSR + key
+openssl req -new -newkey rsa:2048 -nodes \
+  -keyout traefik/traefik-external-key.pem \
+  -out traefik/traefik-external.csr \
+  -subj "/C=DE/O=SensorBridge/OU=IoT/CN=sensorbridge.internal.local"
+
+# Sign with CA (valid for 5 years)
+openssl x509 -req -in traefik/traefik-external.csr \
+  -CA ca/sb-root-ca.pem -CAkey ca/sb-root-ca.key -CAcreateserial \
+  -out traefik/traefik-external.pem -days 1825 -sha256 \
+  -extfile <(printf "subjectAltName=DNS:sensorbridge,DNS:localhost,DNS:host.docker.internal,IP:127.0.0.1")
+```
+
+17. Inform the user that the setup process is complete, and that they can now start the application with "docker compose up -d".

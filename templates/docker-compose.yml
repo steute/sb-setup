@@ -1,23 +1,28 @@
 services:
   sensorbridge:
     image: steute/sensor-bridge:main
+    # running as node:node (1000:1000)
     container_name: sensorbridge
     restart: unless-stopped
     extra_hosts:
       - host.docker.internal:host-gateway
     environment:
       TZ: ${TZ:-Europe/Berlin}
+      # Initial user and password for first login to Sensor Bridge web interface
+      INITIAL_USERNAME: ${SB_INITUSER:-admin}
+      INITIAL_PASSWORD_FILE: /run/secrets/initial_sb_password
+      # This masterkey is used to encrypt data in the database
       SB_MASTERKEY_FILE: /run/secrets/sb_masterkey
+      # Database connection settings
       POSTGRES_USERNAME: ${POSTGRES_USER:-user}
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password_sb
       POSTGRES_HOST: "postgres"
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-steute}
       POSTGRES_SSL: "true"
       POSTGRES_ROOT_CA_FILE: "/app/certs/sb-root-ca.pem"
-      POSTGRES_REJECT_UNAUTHORIZED: "true"      
-      INITIAL_USERNAME: ${SB_INITUSER:-admin}
-      INITIAL_PASSWORD_FILE: /run/secrets/initial_sb_password
+      POSTGRES_REJECT_UNAUTHORIZED: "true"
+      # MQTT connection settings
       MQTT_PROTOCOL: "mqtts"
       MQTT_HOST: "mosquitto"
       MQTT_PORT: 8883
@@ -39,19 +44,20 @@ services:
     depends_on:
       - postgres
     secrets:
-      - postgres_password
+      - postgres_password_sb
       - initial_sb_password
       - mqtt_password
       - sb_masterkey
 
   postgres:
     image: dhi.io/postgres:18.1-alpine3.22
+    # running as postgres:postgres (70:70)
     container_name: postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-steute}
       POSTGRES_USER: ${POSTGRES_USER:-user}
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password_pg
     volumes:
       - ./postgres/data:/var/lib/postgresql
       - ./postgres/postgres-internal.pem:/var/lib/postgresql/postgres-internal.pem:ro
@@ -60,7 +66,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     secrets:
-      - postgres_password
+      - postgres_password_pg
     command: >
       -c ssl=on
       -c ssl_cert_file=/var/lib/postgresql/postgres-internal.pem
@@ -69,6 +75,8 @@ services:
 
   mosquitto:
     image: dhi.io/eclipse-mosquitto:2.0
+    # DHI image running as nonroot:nonroot (65532:65532)
+    # official image runs as mosquitto:mosquitto (1883:1883)
     container_name: mosquitto
     restart: unless-stopped
     environment:
@@ -89,6 +97,8 @@ services:
 
   docker-socket-proxy:
     image: lscr.io/linuxserver/socket-proxy:latest
+    # Running as root (0:0) to access docker socket, but with no-new-privileges 
+    # and read-only filesystem for security hardening
     container_name: docker-socket-proxy
     restart: unless-stopped
     environment:
@@ -108,6 +118,8 @@ services:
 
   traefik:
     image: dhi.io/traefik:3.6
+    # DHI version of Traefik runs as nonroot:nonroot (65532:65532)
+    # Standard Traefik image runs as root (see https://github.com/traefik/traefik/issues/11750)
     container_name: traefik
     restart: unless-stopped
     environment:
@@ -125,8 +137,8 @@ services:
       - "443:443"
     volumes:
       - ./traefik/traefik-tls-config.yaml:/etc/traefik/traefik-tls-config.yaml:ro
-      - ./traefik/steute-sb-internal.pem:/etc/traefik/steute-sb-internal.pem:ro
-      - ./traefik/steute-sb-internal-key.pem:/etc/traefik/steute-sb-internal-key.pem:ro
+      - ./traefik/traefik-external.pem:/etc/traefik/traefik-external.pem:ro
+      - ./traefik/traefik-external-key.pem:/etc/traefik/traefik-external-key.pem:ro
     depends_on:
       - docker-socket-proxy
     networks:
@@ -141,8 +153,10 @@ networks:
     driver: bridge
 
 secrets:
-  postgres_password:
-    file: ./secrets/postgres_password.txt
+  postgres_password_pg:
+    file: ./secrets/postgres_password_pg.txt
+  postgres_password_sb:
+    file: ./secrets/postgres_password_sb.txt    
   initial_sb_password:
     file: ./secrets/initial_sb_password.txt
   mqtt_password:
