@@ -1,1 +1,0 @@
-Instructions for writing the setup script are provided in the .github/setup-instructions.md file.

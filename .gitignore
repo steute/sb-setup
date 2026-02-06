@@ -3,6 +3,7 @@ ca/
 mosquitto/
 postgres/
 secrets/
+traefik/
 /docker-compose.yml
 
 # Secrets and keys
@@ -12,7 +13,7 @@ secrets/
 *_masterkey.txt
 .env
 
-# macOS
+# macOS artifacts
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -31,7 +32,7 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
-# Windows
+# Windows artifacts
 Thumbs.db
 Thumbs.db:encryptable
 ehthumbs.db
@@ -46,7 +47,7 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 
-# Linux
+# Linux artifacts
 *~
 .fuse_hidden*
 .directory
