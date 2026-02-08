@@ -21,14 +21,10 @@ for setting up a secure production ready instance of the steute Sensor Bridge ap
 
 ## Usage
 
-_Please refer to the documentation link, provided below, for detailed instructions on how to use the setup script and for troubleshooting._
+Please refer to the document [`USAGE.md`](./USAGE.md) for instructions on how to use the setup script.
 
-Run the setup script with sudo: `sudo ./setup.sh` and follow the instructions.
+## Further Documentation
 
-To clean up all generated files, run `sudo ./setup.sh reset`.
-
-## Documentation
-
-For documentation see [the steute internal docs](https://gitlab-nexy.steute.it-root.com/nexy/nexy-documentation/-/blob/E6489-66/SB3-and-Node-RED-setup/private/versioned_docs/version-3.0.x/10-sensor-bridge/15-secure-docker-setup.md?ref_type=heads) or the [staging documentation](https://staging-docs.nexy.net/private/docs/sensor-bridge/secure-docker-setup).
+For more detailed documentation and setup options see [the steute internal docs](https://gitlab-nexy.steute.it-root.com/nexy/nexy-documentation/-/blob/E6489-66/SB3-and-Node-RED-setup/private/versioned_docs/version-3.0.x/10-sensor-bridge/15-secure-docker-setup.md?ref_type=heads) or the [staging documentation](https://staging-docs.nexy.net/private/docs/sensor-bridge/secure-docker-setup).
 
 **WIP: Change the documentation links to the public documentation once the documentation is published.**

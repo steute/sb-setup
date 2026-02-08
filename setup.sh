@@ -428,6 +428,77 @@ setup_traefik_config() {
     print_success "Traefik configuration file created"
 }
 
+# Helper function to validate SAN entries
+validate_san_entries() {
+    local input="$1"
+    
+    # Empty input is valid (use defaults)
+    if [[ -z "$input" ]]; then
+        return 0
+    fi
+    
+    # Split by comma and validate each entry
+    IFS=',' read -ra entries <<< "$input"
+    for entry in "${entries[@]}"; do
+        # Trim whitespace
+        entry=$(echo "$entry" | xargs)
+        
+        # Check if it starts with DNS: or IP:
+        if [[ ! "$entry" =~ ^(DNS|IP): ]]; then
+            print_error "Invalid SAN entry: '$entry' - Must start with 'DNS:' or 'IP:'"
+            print_info "Example: DNS:example.com or IP:192.168.1.100"
+            return 1
+        fi
+        
+        # Extract type and value
+        local type="${entry%%:*}"
+        local value="${entry#*:}"
+        
+        # Check if value is empty
+        if [[ -z "$value" ]]; then
+            print_error "Invalid SAN entry: '$entry' - Value cannot be empty"
+            return 1
+        fi
+        
+        # Validate based on type
+        if [[ "$type" == "DNS" ]]; then
+            # Basic DNS validation: alphanumeric, dots, hyphens, must not start/end with hyphen or dot
+            if [[ ! "$value" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$ ]]; then
+                print_error "Invalid DNS name: '$value' - Must be a valid hostname (alphanumeric, dots, hyphens)"
+                return 1
+            fi
+        elif [[ "$type" == "IP" ]]; then
+            # IPv4 validation
+            if [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                # Check each octet is 0-255
+                IFS='.' read -ra octets <<< "$value"
+                if [[ ${#octets[@]} -ne 4 ]]; then
+                    print_error "Invalid IPv4 address: '$value' - Must have 4 octets"
+                    return 1
+                fi
+                for octet in "${octets[@]}"; do
+                    if [[ "$octet" -gt 255 ]] || [[ "$octet" -lt 0 ]]; then
+                        print_error "Invalid IPv4 address: '$value' - Octets must be 0-255"
+                        return 1
+                    fi
+                done
+            # IPv6 validation (basic)
+            elif [[ "$value" =~ ^[0-9a-fA-F:]+$ ]]; then
+                # Basic IPv6 check (has colons and hex digits)
+                if [[ ! "$value" =~ : ]]; then
+                    print_error "Invalid IPv6 address: '$value'"
+                    return 1
+                fi
+            else
+                print_error "Invalid IP address: '$value' - Must be a valid IPv4 or IPv6 address"
+                return 1
+            fi
+        fi
+    done
+    
+    return 0
+}
+
 # 16. Create Traefik reverse proxy certificate signed by CA
 create_traefik_certificate() {
     print_info "Creating Traefik reverse proxy certificate signed by CA..."
@@ -436,11 +507,25 @@ create_traefik_certificate() {
 
     print_info "Enter additional SAN entries for Traefik certificate (or press Enter for defaults)"
     print_info "Default SAN entries: DNS:sensorbridge, DNS:localhost, DNS:host.docker.internal, IP:127.0.0.1"
-    read -p "Additional SAN entries (comma-separated, e.g., DNS:example.com): " -r additional_sans
+    print_info "Format: DNS:hostname or IP:address (comma-separated for multiple entries)"
+    
+    # Loop until valid input or empty
+    local additional_sans=""
+    while true; do
+        read -p "Additional SAN entries: " -r additional_sans
+        
+        # Validate input
+        if validate_san_entries "$additional_sans"; then
+            break
+        fi
+        print_warning "Please enter valid SAN entries or press Enter to use defaults only"
+    done
     
     # Build the SAN string
     local san_string="subjectAltName=DNS:sensorbridge,DNS:localhost,DNS:host.docker.internal,IP:127.0.0.1"
     if [[ -n "$additional_sans" ]]; then
+        # Remove spaces around commas for clean concatenation
+        additional_sans=$(echo "$additional_sans" | sed 's/[[:space:]]*,[[:space:]]*/,/g')
         san_string="${san_string},${additional_sans}"
     fi
 
@@ -513,11 +598,64 @@ main() {
     cd "$SCRIPT_DIR"
     
     echo ""
+    echo "========================================"
     print_success "Setup completed successfully!"
-    print_info "Next steps:"
-    print_info "1. Review the generated certificates and setup files"
-    print_info "2. Configure additional Docker Compose settings if needed"
-    print_info "3. Run 'sudo docker compose up -d' to start the services"
+    echo "========================================"
+    echo ""
+    
+    # Display important credentials and information
+    print_info "=== IMPORTANT INFORMATION ==="
+    echo ""
+    
+    # SensorBridge Master Key
+    print_warning "=== SensorBridge Master Key ==="
+    print_warning "Master Key: $(cat ${SCRIPT_DIR}/secrets/sb_masterkey.txt)"
+    print_warning "Location: ${SCRIPT_DIR}/secrets/sb_masterkey.txt"
+    print_warning "IMPORTANT: Store this master key in a safe place (e.g., password manager or secure vault)."
+    print_warning "           If lost, encrypted data cannot be recovered!"
+    echo ""
+    
+    # SensorBridge Web Interface Login
+    print_info "=== SensorBridge Web Interface ==="
+    print_info "URL: https://localhost (or https://sensorbridge)"
+    print_info "Initial Username: admin"
+    print_info "Initial Password: $(cat ${SCRIPT_DIR}/secrets/initial_sb_password.txt)"
+    print_info "Location: ${SCRIPT_DIR}/secrets/initial_sb_password.txt"
+    print_warning "Please change the password after first login!"
+    echo ""
+    
+    # MQTT Connection Information
+    print_info "=== MQTT Broker Connection ==="
+    print_info "Protocol: WSS (WebSocket Secure)"
+    print_info "Host: localhost (or sensorbridge)"
+    print_info "Port: 443"
+    print_info "Path: /mqttproxy"
+    print_info "Username: mqttclient"
+    print_info "Password: $(cat ${SCRIPT_DIR}/secrets/mqtt_password.txt)"
+    print_info "Location: ${SCRIPT_DIR}/secrets/mqtt_password.txt"
+    print_info "Example connection: wss://localhost:443/mqttproxy"
+    echo ""
+    
+    # Root Certificate Information
+    print_info "=== Root Certificate ==="
+    print_info "Location: ${SCRIPT_DIR}/ca/sb-root-ca.pem"
+    print_info "This root certificate can be used to validate all self-signed server certificates."
+    print_info "Install it on your system to avoid browser security warnings:"
+    print_info "  Linux:   sudo cp ca/sb-root-ca.pem /usr/local/share/ca-certificates/sb-root-ca.crt"
+    print_info "           sudo update-ca-certificates"
+    print_info "  macOS:   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca/sb-root-ca.pem"
+    print_info "  Windows: Double-click ca/sb-root-ca.pem and install to 'Trusted Root Certification Authorities'"
+    echo ""
+    
+    echo "========================================"
+    print_info "=== Next Steps ==="
+    echo "========================================"
+    print_info "1. BACKUP the secrets directory and master key to a secure location"
+    print_info "2. Start the services: sudo docker compose up -d"
+    print_info "3. Access the web interface at https://localhost"
+    print_info "4. Change the default admin password after first login"
+    print_info "5. Install the root CA certificate to avoid browser warnings"
+    echo ""
 }
 
 # Run main function with all arguments
