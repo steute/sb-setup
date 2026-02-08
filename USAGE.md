@@ -1,6 +1,6 @@
 # How to Use the Setup Script
 
-This guide explains how to use the `setup.sh` script to configure and deploy a secure Sensor Bridge instance with Docker.
+This guide explains how to use the `setup.sh` script to configure and deploy a secure Sensor Bridge instance with Docker Compose.
 
 ## Overview
 
@@ -12,13 +12,6 @@ The setup script automates the creation of:
 - **Secure Passwords**: Randomly generated passwords stored in the `secrets/` directory
 - **Database Encryption Key**: Master key for encrypting sensitive data in the database
 
-At the end of the setup, the script displays all important information including:
-
-- SensorBridge master key (for data encryption)
-- Web interface credentials (username: admin)
-- MQTT broker connection details (WebSocket Secure on port 443, path: /mqttproxy)
-- Root CA certificate location and installation instructions
-
 ## Prerequisites
 
 Before running the setup script, ensure you have:
@@ -27,7 +20,7 @@ Before running the setup script, ensure you have:
 - **OpenSSL** installed
 - **Root/sudo access** to the system
 - **Linux system** (tested on amd64/x86_64 Debian 12 Bookworm)
-- **Docker Hub account** (if using the dhi.io registry)
+- **Docker Hub account** (Only if using the dhi.io registry, which is recommended for security but optional.)
 
 ## Quick Start
 
@@ -76,6 +69,11 @@ Do you want to continue and overwrite existing files? (y/N):
 
 ### Step 3: Docker Registry Selection
 
+It is recommended but not required to use the official `dhi.io` Docker registry for the latest and most secure images of the database, the mqtt broker and the Traefik reverse proxy.
+To learn more about Docker Hardened Image (DHI) and its security benefits, visit [the Docker DHI docs](https://docs.docker.com/dhi/).
+
+The script will prompt:
+
 ```
 Do you want to use the 'dhi.io' registry? (Y/n):
 ```
@@ -83,11 +81,11 @@ Do you want to use the 'dhi.io' registry? (Y/n):
 - **Y** (recommended): Uses the official dhi.io Docker registry
   - You'll be prompted to authenticate: `sudo docker login dhi.io`
   - Follow the login prompts with your Docker Hub credentials
-- **n**: Uses alternative Docker images (you'll need to provide your own)
+- **n**: Uses alternative Docker images from the public Docker Hub registry
 
 ### Step 4: Certificate Configuration
 
-Enter certificate details for your Certificate Authority (CA):
+The script will generate a local Certificate Authority (CA) and sign certificates for all services. You can customize the certificate details or accept the defaults.
 
 ```
 Enter certificate information (press Enter to use default values):
@@ -99,15 +97,13 @@ Organizational Unit (OU) [IoT]:
 Common Name (CN) [Internal-SensorBridge-CA]:
 ```
 
-**Tip**: Press Enter to accept the default values shown in brackets, or type your own values.
-
 The script will then:
 
 - Create a root CA certificate (valid for 25 years)
 - Generate certificates for MQTT broker, PostgreSQL, and Traefik (valid for 5-20 years)
 - Sign all certificates with the CA
 
-### Step 5: Initial Admin Password
+### Step 5: Initial Sensor Bridge Admin Password
 
 ```
 Do you want a randomly generated initial password? (Y/n):
@@ -119,6 +115,10 @@ Do you want a randomly generated initial password? (Y/n):
 - **n**: Prompts you to enter and confirm a custom password
 
 ### Step 6: Traefik Certificate SAN Entries
+
+All external services (Sensor Bridge web interface, MQTT broker to connect Access Points) use the Traefik certificate. By default, it includes SAN entries for `localhost`, `sensorbridge`, `host.docker.internal`, and `127.0.0.1`.
+
+_The script generates self signed certificates. You may want to replace them by your own certificates or use services like letsencrypt in production. In that case, you need to make sure that the Traefik certificate includes SAN entries for all hostnames and IP addresses you want to use to access the web interface and MQTT broker. Please see the [advanced configuration docs](https://docs.nexy.net/TBD) for more details._ **TODO: TBD!**
 
 ```
 Enter additional SAN entries for Traefik certificate (or press Enter for defaults)
@@ -157,18 +157,19 @@ IMPORTANT: Store this master key in a safe place (e.g., password manager or secu
 
 ```
 === SensorBridge Web Interface ===
-URL: https://localhost (or https://sensorbridge)
+URL: https://localhost (or https://sensorbridge or your chosen SAN entry)
 Initial Username: admin
 Initial Password: <your-generated-password>
 Location: /path/to/secrets/initial_sb_password.txt
+Note: You will need to change the password at first login. Store the new password securely.
 ```
 
-#### MQTT Connection Details
+#### MQTT Connection Details (for Access Points)
 
 ```
 === MQTT Broker Connection ===
 Protocol: WSS (WebSocket Secure)
-Host: localhost (or sensorbridge)
+Host: localhost (or sensorbridge or your chosen SAN entry)
 Port: 443
 Path: /mqttproxy
 Username: mqttclient
@@ -183,11 +184,9 @@ Example connection: wss://localhost:443/mqttproxy
 === Root Certificate ===
 Location: /path/to/ca/sb-root-ca.pem
 This root certificate can be used to validate all self-signed server certificates.
-Install it on your system to avoid browser security warnings:
-  Linux:   sudo cp ca/sb-root-ca.pem /usr/local/share/ca-certificates/sb-root-ca.crt
-           sudo update-ca-certificates
-  macOS:   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca/sb-root-ca.pem
-  Windows: Double-click ca/sb-root-ca.pem and install to 'Trusted Root Certification Authorities'
+Install it on your system or browser to avoid browser security warnings.
+Also use it in the Access Point configuration to validate the broker's identity.
+Fingerprint (SHA256): <sha256-fingerprint>
 ```
 
 #### Next Steps
@@ -195,10 +194,10 @@ Install it on your system to avoid browser security warnings:
 ```
 === Next Steps ===
 1. BACKUP the secrets directory and master key to a secure location
-2. Start the services: sudo docker compose up -d
-3. Access the web interface at https://localhost
-4. Change the default admin password after first login
-5. Install the root CA certificate to avoid browser warnings
+2. Start the services (in this directory!): sudo docker compose up -d
+3. Optionally install the root CA certificate to avoid browser warnings
+4. Access the web interface at https://localhost (or your chosen SAN entry) and log in with the initial credentials
+5. Connect Access Points using the provided MQTT connection information.
 ```
 
 **Important**: Take note of all displayed credentials and save them securely. All this information is also stored in the `secrets/` directory.
@@ -280,68 +279,14 @@ Once the services are running:
 
 ### Web Interface
 
-1. Navigate to `https://localhost` or `https://sensorbridge`
+1. Navigate to `https://localhost`, `https://sensorbridge`, or your chosen SAN entry
    - Your browser will show a certificate warning (expected for self-signed certificates)
-   - Click "Advanced" and proceed to the site
+   - To avoid the warnings, install the root CA certificate (`ca/sb-root-ca.pem`) on your system or browser
+   - Or click "Advanced" and proceed to the site accepting the certificate
 2. **Login Credentials**:
    - Username: `admin`
    - Password: Check `secrets/initial_sb_password.txt` or use the password displayed during setup
-   - **Important**: Change the password immediately after first login
-
-### MQTT Broker
-
-Connect to the MQTT broker via WebSocket Secure (WSS):
-
-- **Connection URL**: `wss://localhost:443/mqttproxy` or `wss://sensorbridge:443/mqttproxy`
-- **Username**: `mqttclient`
-- **Password**: Check `secrets/mqtt_password.txt` or use the password displayed during setup
-- **Protocol**: MQTT over WebSockets (WSS)
-- **Port**: 443 (HTTPS/WSS)
-- **Path**: `/mqttproxy`
-
-**Example using MQTT.js:**
-
-```javascript
-const mqtt = require("mqtt");
-
-const client = mqtt.connect("wss://localhost:443/mqttproxy", {
-  username: "mqttclient",
-  password: "<your-mqtt-password>",
-  rejectUnauthorized: false, // Set to true after installing root CA
-});
-```
-
-**Example using mosquitto_sub:**
-
-```bash
-mosquitto_sub -h localhost -p 8883 -t 'test/topic' \
-  -u mqttclient -P '<your-mqtt-password>' \
-  --cafile ca/sb-root-ca.pem
-```
-
-### Installing the Root CA Certificate
-
-To avoid certificate warnings, install the root CA certificate on your system:
-
-**Linux:**
-
-```bash
-sudo cp ca/sb-root-ca.pem /usr/local/share/ca-certificates/sb-root-ca.crt
-sudo update-ca-certificates
-```
-
-**macOS:**
-
-```bash
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca/sb-root-ca.pem
-```
-
-**Windows:**
-
-1. Double-click `ca/sb-root-ca.pem`
-2. Click "Install Certificate"
-3. Select "Local Machine"
-4. Place in "Trusted Root Certification Authorities"
+   - **Important**: You will have to change the password immediately after first login
 
 ## Resetting the Setup
 
@@ -399,11 +344,10 @@ sudo docker compose logs
 Common issues:
 
 - Port conflicts: Another service may be using ports 80/443
-- File permissions: Re-run the setup script to fix permissions
 
 ### Certificate warnings persist
 
-**Solution**: Install the root CA certificate on your system (see "Installing the Root CA Certificate" above)
+**Solution**: Install the root CA certificate on your system or browser
 
 ### Can't find generated passwords or master key
 
@@ -416,48 +360,3 @@ cat secrets/sb_masterkey.txt             # Database encryption master key
 cat secrets/postgres_password_pg.txt     # PostgreSQL password (for DB)
 cat secrets/postgres_password_sb.txt     # PostgreSQL password (for SensorBridge)
 ```
-
-### Invalid SAN entry error during setup
-
-**Solution**: When entering additional SAN entries for the Traefik certificate, ensure correct format:
-
-- Valid formats: `DNS:hostname.com` or `IP:192.168.1.100`
-- Multiple entries: `DNS:host1.com,DNS:host2.com,IP:192.168.1.100`
-- Each entry must start with `DNS:` or `IP:`
-- DNS names must be valid hostnames (alphanumeric, dots, hyphens)
-- IP addresses must be valid IPv4 (e.g., 192.168.1.100) or IPv6 format
-
-### MQTT connection fails
-
-**Solution**:
-
-1. Verify the connection URL includes the correct path: `wss://localhost:443/mqttproxy`
-2. Check the MQTT credentials in `secrets/mqtt_password.txt`
-3. Ensure the root CA certificate is trusted or set `rejectUnauthorized: false` for testing
-4. Verify containers are running: `sudo docker compose ps`
-
-## Next Steps
-
-After successful setup:
-
-1. **CRITICAL: Backup the master key** from `secrets/sb_masterkey.txt` to a secure location (password manager, encrypted vault, etc.)
-2. **Backup all secrets and certificates**:
-   - `secrets/` directory (contains all passwords and master key)
-   - `ca/sb-root-ca.key` and `ca/sb-root-ca.pem` (root CA)
-   - `postgres/data/` directory (database data)
-3. **Start the services**: `sudo docker compose up -d`
-4. **Install the root CA certificate** on your system to avoid browser warnings (see instructions above)
-5. **Access the SensorBridge Web Interface** at `https://localhost`
-6. **Change the admin password** immediately after first login
-7. **Test MQTT connectivity** using the credentials displayed during setup
-8. **Configure your sensors and devices** through the web interface
-
-## Additional Resources
-
-- [SensorBridge Documentation](https://docs.nexy.net)
-- [Docker Compose Documentation](https://docs.docker.com/compose/)
-- [Mosquitto MQTT Documentation](https://mosquitto.org/documentation/)
-
-## Support
-
-For issues or questions, please contact your system administrator or refer to the main project documentation.

@@ -1,4 +1,4 @@
-# Secure Sensor Bridge Docker Setup
+# Secure Sensor Bridge Docker Compose Setup
 
 Version 0.0.1
 
@@ -6,7 +6,7 @@ Version 0.0.1
 
 This repository provides a script that generates:
 
-- a docker compose file
+- a Docker Compose file
 - configuration files
 - TLS certificates
 
