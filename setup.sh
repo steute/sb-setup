@@ -292,7 +292,7 @@ setup_mosquitto_password() {
     
     # Generate unique password for MQTT client
     print_info "Generating unique password for MQTT client..."
-    openssl rand -base64 32 | tr '+/' '__' | tr -d '=' > secrets/mqtt_password.txt
+    openssl rand -base64 32 | tr '+/LlO' 'ps11o' | tr -d '=' > secrets/mqtt_password.txt
     print_success "MQTT password generated and stored in secrets/mqtt_password.txt"
     
     # Create mosquitto password file
@@ -358,7 +358,7 @@ setup_postgres_password() {
     print_info "Creating PostgreSQL password secret..."
 
     mkdir -p "${SCRIPT_DIR}/secrets"
-    openssl rand -base64 32 | tr '+/' '__' | tr -d '=' > "${SCRIPT_DIR}/secrets/postgres_password_pg.txt"
+    openssl rand -base64 32 | tr '+/LlO' 'ps11o' | tr -d '=' > "${SCRIPT_DIR}/secrets/postgres_password_pg.txt"
     # We need a copy, because the file permissions and ownership need to be different for the postgres container and the sensor bridge container
     cp "${SCRIPT_DIR}/secrets/postgres_password_pg.txt" "${SCRIPT_DIR}/secrets/postgres_password_sb.txt"
 
@@ -370,7 +370,7 @@ setup_masterkey() {
     print_info "Creating SensorBridge masterkey..."
 
     mkdir -p "${SCRIPT_DIR}/secrets"
-    openssl rand -base64 32 | tr '+/' '__' | tr -d '=' > "${SCRIPT_DIR}/secrets/sb_masterkey.txt"
+    openssl rand -base64 32 | tr '+/LlO' 'ps11o' | tr -d '=' > "${SCRIPT_DIR}/secrets/sb_masterkey.txt"
 
     print_success "Masterkey created at secrets/sb_masterkey.txt"
     print_warning "Store this masterkey in a safe place. If lost, encrypted data is unrecoverable."
@@ -386,7 +386,7 @@ setup_initial_admin_password() {
 
     if [[ "$use_random" =~ ^[Yy]$ ]]; then
         local random_password
-        random_password=$(openssl rand -base64 10 | tr '+/' '__' | tr -d '=')
+        random_password=$(openssl rand -base64 10 | tr '+/LlO' 'ps11o' | tr -d '=')
         echo "$random_password" > "${SCRIPT_DIR}/secrets/initial_sb_password.txt"
         print_success "Initial password generated and stored in secrets/initial_sb_password.txt"
         print_info "Initial login username: admin"
