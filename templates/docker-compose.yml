@@ -1,6 +1,7 @@
 services:
   sensorbridge:
-    image: steute/sensor-bridge:main
+    # visit https://github.com/steute/sb-setup for latest image versions
+    image: steute/sensor-bridge:3.0.0
     # running as node:node (1000:1000)
     container_name: sensorbridge
     restart: unless-stopped
@@ -97,7 +98,7 @@ services:
 
   docker-socket-proxy:
     image: lscr.io/linuxserver/socket-proxy:latest
-    # Running as root (0:0) to access docker socket, but with no-new-privileges 
+    # Running as root (0:0) to access docker socket, but with no-new-privileges
     # and read-only filesystem for security hardening
     container_name: docker-socket-proxy
     restart: unless-stopped
@@ -143,7 +144,7 @@ services:
       - docker-socket-proxy
     networks:
       - default
-      - socket_proxy      
+      - socket_proxy
 
 networks:
   default:
@@ -156,7 +157,7 @@ secrets:
   postgres_password_pg:
     file: ./secrets/postgres_password_pg.txt
   postgres_password_sb:
-    file: ./secrets/postgres_password_sb.txt    
+    file: ./secrets/postgres_password_sb.txt
   initial_sb_password:
     file: ./secrets/initial_sb_password.txt
   mqtt_password:

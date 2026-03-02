@@ -1,6 +1,6 @@
-# Secure Sensor Bridge Docker Compose Setup
+# Secure Sensor Bridge Docker Setup
 
-Version 0.0.1
+Version 0.0.2
 
 ## About
 
@@ -10,7 +10,27 @@ This repository provides a script that generates:
 - configuration files
 - TLS certificates
 
-for setting up a secure production ready instance of the steute Sensor Bridge application.
+for setting up a secure production ready instance of the steute Sensor Bridge application with Docker Compose.
+
+To quickly set up a Sensor Bridge instance for testing, follow the [simple Docker Compose setup instructions](./SIMPLE_SETUP.md).
+
+**TODO: Add a link to the public documentation once it is published.**
+
+## Latest Image Versions
+
+As of Feb. 27, 2026, the script generates a Docker Compose file using these image versions:
+
+- `steute/sensor-bridge:main`
+- `dhi.io/postgres:18.1-alpine3.22` or `postgres:18.1-alpine3.22`
+- `dhi.io/eclipse-mosquitto:2.0` or `eclipse-mosquitto:2.0`
+- `lscr.io/linuxserver/socket-proxy:latest`
+- `dhi.io/traefik:3.6` or `traefik:3.6`
+
+Other versions of the Postgres, Mosquitto, Socket-Proxy, and Traefik images may work, but Steute has not tested them.
+
+For older versions of the Sensor Bridge application, please refer to the [release notes]().
+
+**TODO: Add a link to the release notes once they are published.**
 
 ## Requirements
 
@@ -27,4 +47,4 @@ Please refer to the document [`USAGE.md`](./USAGE.md) for instructions on how to
 
 For more detailed documentation and setup options see [the steute internal docs](https://gitlab-nexy.steute.it-root.com/nexy/nexy-documentation/-/blob/E6489-66/SB3-and-Node-RED-setup/private/versioned_docs/version-3.0.x/10-sensor-bridge/15-secure-docker-setup.md?ref_type=heads) or the [staging documentation](https://staging-docs.nexy.net/private/docs/sensor-bridge/secure-docker-setup).
 
-**WIP: Change the documentation links to the public documentation once the documentation is published.**
+**TODO: Change the documentation links to the public documentation once the documentation is published.**
