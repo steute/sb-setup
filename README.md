@@ -1,6 +1,6 @@
 # Secure Sensor Bridge Docker Setup
 
-Version 0.0.2
+Version 0.1.0
 
 ## About
 
@@ -16,9 +16,20 @@ To quickly set up a Sensor Bridge instance for testing, follow the [simple Docke
 
 **TODO: Add a link to the public documentation once it is published.**
 
+## Requirements
+
+- Docker Engine (version 29 or later)
+- OpenSSL
+- Linux system (tested on `amd64`/`x86_64` Debian 12 Bookworm)
+- Root access (sudo)
+
+## Usage
+
+Please refer to the document [`USAGE.md`](./USAGE.md) for instructions on how to use the setup script.
+
 ## Latest Image Versions
 
-As of Feb. 27, 2026, the script generates a Docker Compose file using these image versions:
+As of März. /2, 2026, the script generates a Docker Compose file using these image versions:
 
 - `steute/sensor-bridge:main`
 - `dhi.io/postgres:18.1-alpine3.22` or `postgres:18.1-alpine3.22`
@@ -31,17 +42,6 @@ Other versions of the Postgres, Mosquitto, Socket-Proxy, and Traefik images may 
 For older versions of the Sensor Bridge application, please refer to the [release notes]().
 
 **TODO: Add a link to the release notes once they are published.**
-
-## Requirements
-
-- Docker Engine (version 29 or later)
-- OpenSSL
-- Linux system (tested on `amd64`/`x86_64` Debian 12 Bookworm)
-- Root access (sudo)
-
-## Usage
-
-Please refer to the document [`USAGE.md`](./USAGE.md) for instructions on how to use the setup script.
 
 ## Further Documentation
 
