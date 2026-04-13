@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CA_DIR="${SCRIPT_DIR}/ca"
 MOSQUITTO_DIR="${SCRIPT_DIR}/mosquitto"
 POSTGRES_DIR="${SCRIPT_DIR}/postgres"
+NODE_RED_DIR="${SCRIPT_DIR}/node-red"
 TRAEFIK_DIR="${SCRIPT_DIR}/traefik"
 
 # Functions
@@ -113,6 +114,11 @@ handle_reset() {
             rm -rf "$TRAEFIK_DIR"
             print_success "Removed traefik directory"
         fi
+
+        if [[ -d "$NODE_RED_DIR" ]]; then
+            rm -rf "$NODE_RED_DIR"
+            print_success "Removed node-red directory"
+        fi
         
         if [[ -f "${SCRIPT_DIR}/docker-compose.yml" ]]; then
             rm -f "${SCRIPT_DIR}/docker-compose.yml"
@@ -162,7 +168,22 @@ choose_docker_registry() {
     fi
 }
 
-# 5. Make a copy of the template docker-compose file
+# 5. Ask whether Node-RED should be included
+choose_node_red() {
+    print_info "Optional Node-RED Configuration"
+    read -p "Do you want to include a Node-RED instance? (y/N): " -r use_node_red
+    use_node_red="${use_node_red:-N}"
+
+    if [[ "$use_node_red" =~ ^[Yy]$ ]]; then
+        USE_NODE_RED=true
+        print_success "Node-RED will be included"
+    else
+        USE_NODE_RED=false
+        print_info "Node-RED will not be included"
+    fi
+}
+
+# 6. Make a copy of the template docker-compose file
 setup_docker_compose() {
     print_info "Setting up docker-compose.yml..."
     
@@ -184,9 +205,17 @@ setup_docker_compose() {
         sed -i 's|dhi\.io/||g' "$COMPOSE_FILE"
         print_success "Updated docker-compose.yml to use alternative images"
     fi
+
+    if [[ "$USE_NODE_RED" == false ]]; then
+        print_info "Removing Node-RED service and secrets from docker-compose.yml..."
+        sed -i '/^  node-red:$/,/^networks:$/d' "$COMPOSE_FILE"
+        sed -i '/^  node-red-admin-password:$/,+1d' "$COMPOSE_FILE"
+        sed -i '/^  sb-rest-api-password:$/,+1d' "$COMPOSE_FILE"
+        print_success "Removed Node-RED service and secrets from docker-compose.yml"
+    fi
 }
 
-# 6. Create local CA and generate certificates
+# 7. Create local CA and generate certificates
 create_certificates() {
     print_info "Creating certificates and local CA..."
     
@@ -235,7 +264,7 @@ create_certificates() {
     print_info "Root key: ${CA_DIR}/sb-root-ca.key"
 }
 
-# 7. Create MQTT broker certificate signed by CA
+# 8. Create MQTT broker certificate signed by CA
 create_mqtt_broker_certificate() {
     print_info "Creating MQTT broker certificate signed by CA..."
     
@@ -271,7 +300,7 @@ create_mqtt_broker_certificate() {
     print_info "MQTT broker key: ${SCRIPT_DIR}/mosquitto/mqtt-broker-internal-key.pem"
 }
 
-# 8. Copy mosquitto configuration template
+# 9. Copy mosquitto configuration template
 setup_mosquitto_config() {
     print_info "Setting up Mosquitto configuration..."
     
@@ -281,7 +310,7 @@ setup_mosquitto_config() {
     print_success "Mosquitto configuration file created"
 }
 
-# 9. Create mosquitto password file
+# 10. Create mosquitto password file
 setup_mosquitto_password() {
     print_info "Creating Mosquitto password file..."
     
@@ -308,7 +337,7 @@ setup_mosquitto_password() {
     print_success "Mosquitto password file created"
 }
 
-# 10. Create PostgreSQL certificate signed by CA
+# 11. Create PostgreSQL certificate signed by CA
 create_postgres_certificate() {
     print_info "Creating PostgreSQL certificate signed by CA..."
 
@@ -338,7 +367,7 @@ create_postgres_certificate() {
     print_info "PostgreSQL key: ${POSTGRES_DIR}/postgres-internal-key.pem"
 }
 
-# 11. Copy pg_hba.conf and prepare postgres data folder
+# 12. Copy pg_hba.conf and prepare postgres data folder
 setup_postgres_config() {
     print_info "Setting up PostgreSQL configuration..."
 
@@ -353,7 +382,7 @@ setup_postgres_config() {
     print_success "PostgreSQL configuration prepared"
 }
 
-# 12. Create PostgreSQL password secret
+# 13. Create PostgreSQL password secret
 setup_postgres_password() {
     print_info "Creating PostgreSQL password secret..."
 
@@ -365,7 +394,7 @@ setup_postgres_password() {
     print_success "PostgreSQL password generated and stored in secrets/postgres_password_pg.txt and secrets/postgres_password_sb.txt"
 }
 
-# 13. Create master key for database encryption
+# 14. Create master key for database encryption
 setup_masterkey() {
     print_info "Creating SensorBridge masterkey..."
 
@@ -376,7 +405,7 @@ setup_masterkey() {
     print_warning "Store this masterkey in a safe place. If lost, encrypted data is unrecoverable."
 }
 
-# 14. Create initial admin password
+# 15. Create initial admin password
 setup_initial_admin_password() {
     print_info "Setting initial admin password for SensorBridge web interface..."
 
@@ -418,7 +447,31 @@ setup_initial_admin_password() {
     fi
 }
 
-# 15. Setup traefik configuration folder
+# 16. Setup optional Node-RED configuration
+setup_node_red_config() {
+    if [[ "$USE_NODE_RED" == false ]]; then
+        return
+    fi
+
+    print_info "Setting up optional Node-RED configuration..."
+
+    mkdir -p "${SCRIPT_DIR}/secrets"
+
+    openssl rand -base64 32 | tr '+/LlO' 'ps11o' | tr -d '=' > "${SCRIPT_DIR}/secrets/node-red-admin-password.txt"
+    openssl rand -base64 32 | tr '+/LlO' 'ps11o' | tr -d '=' > "${SCRIPT_DIR}/secrets/sb-rest-api-password.txt"
+
+    chmod 640 "${SCRIPT_DIR}/secrets/node-red-admin-password.txt"
+    chmod 640 "${SCRIPT_DIR}/secrets/sb-rest-api-password.txt"
+
+    mkdir -p "$NODE_RED_DIR/data"
+    sudo chown 1000:1000 "$NODE_RED_DIR/data"
+
+    cp "${SCRIPT_DIR}/templates/settings.js" "$NODE_RED_DIR/settings.js"
+
+    print_success "Node-RED secrets and configuration prepared"
+}
+
+# 17. Setup traefik configuration folder
 setup_traefik_config() {
     print_info "Setting up Traefik reverse proxy configuration..."
 
@@ -499,7 +552,7 @@ validate_san_entries() {
     return 0
 }
 
-# 16. Create Traefik reverse proxy certificate signed by CA
+# 18. Create Traefik reverse proxy certificate signed by CA
 create_traefik_certificate() {
     print_info "Creating Traefik reverse proxy certificate signed by CA..."
 
@@ -558,7 +611,7 @@ create_traefik_certificate() {
     print_info "Traefik key: ${TRAEFIK_DIR}/traefik-external-key.pem"
 }
 
-# 17. Set user/guid and permissions for generated files and folders
+# 19. Set user/guid and permissions for generated files and folders
 set_permissions() {
     print_info "Setting permissions for generated secrets..."
 
@@ -581,6 +634,7 @@ main() {
     handle_reset "$@"
     check_existing_setup
     choose_docker_registry
+    choose_node_red
     setup_docker_compose
     create_certificates
     create_mqtt_broker_certificate
@@ -591,6 +645,7 @@ main() {
     setup_postgres_password
     setup_masterkey
     setup_initial_admin_password
+    setup_node_red_config
     setup_traefik_config
     create_traefik_certificate
     set_permissions
@@ -635,6 +690,20 @@ main() {
     print_info "Location: ${SCRIPT_DIR}/secrets/mqtt_password.txt"
     print_info "Example connection: wss://localhost:443/mqttproxy"
     echo ""
+
+    if [[ "$USE_NODE_RED" == true ]]; then
+        print_info "=== Node-RED Integration ==="
+        print_info "Create a Sensor Bridge REST API user with these credentials:"
+        print_info "Username: nodered"
+        print_info "Password: $(cat ${SCRIPT_DIR}/secrets/sb-rest-api-password.txt)"
+        print_info "Password location: ${SCRIPT_DIR}/secrets/sb-rest-api-password.txt"
+        echo ""
+        print_info "Node-RED login URL: https://localhost/nodered/admin (or your server address)"
+        print_info "Node-RED Username: admin"
+        print_info "Node-RED Password: $(cat ${SCRIPT_DIR}/secrets/node-red-admin-password.txt)"
+        print_info "Password location: ${SCRIPT_DIR}/secrets/node-red-admin-password.txt"
+        echo ""
+    fi
     
     # Root Certificate Information
     print_info "=== Root Certificate ==="

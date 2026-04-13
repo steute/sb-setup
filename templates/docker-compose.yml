@@ -146,6 +146,49 @@ services:
       - default
       - socket_proxy
 
+  node-red:
+    image: nodered/node-red:4.1.8-22
+    container_name: node-red
+    # runs as user node-red (uid 1000) and group node-red (gid 1000)
+    restart: unless-stopped
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      - LANG=${LANG:-de_DE.UTF-8}
+      # Sensor Bridge REST API configuration
+      - SB_REST_API_PASSWORD_FILE=/run/secrets/sb-rest-api-password
+      - SB_REST_API_USER=${SB_REST_API_USER:-nodered}
+      - SB_REST_API_HOST=http://sensorbridge:3000
+      # Node-RED configuration
+      - NODE_RED_LOGLEVEL=info
+      - NODE_RED_ENABLE_EDITOR=true
+      - NODE_RED_ENABLE_ADMIN_USER=true
+      - NODE_RED_ADMIN_PASSWORD_FILE=/run/secrets/node-red-admin-password
+      - NODE_RED_ADMIN_USERNAME=${NODE_RED_ADMIN_USERNAME:-admin}
+      - NODE_RED_ROOT_PATH=/nodered
+    labels:
+      # Traefik configuration to expose Node-RED at https://localhost/nodered/admin/
+      # does not work yet, has to be investigated...
+      - "traefik.enable=true"
+      - "traefik.http.routers.node-red.rule=PathPrefix(`/nodered`)"
+      - "traefik.http.routers.node-red.entrypoints=websecure"
+      - "traefik.http.routers.node-red.tls=true"
+      - "traefik.http.routers.node-red.service=node-red-svc"
+      - "traefik.http.routers.node-red.priority=20"
+      - "traefik.http.services.node-red-svc.loadbalancer.server.port=1880"
+    secrets:
+      - sb-rest-api-password
+      - node-red-admin-password
+    volumes:
+      # for WSL: sudo chown 1000:1000 node-red/data/
+      - ./node-red/data:/data
+      - ./node-red/settings.js:/usr/src/node-red/custom-settings.js:ro
+    command: >
+      node-red
+      --userDir /data
+      --settings /usr/src/node-red/custom-settings.js
+
 networks:
   default:
     driver: bridge
@@ -164,6 +207,10 @@ secrets:
     file: ./secrets/mqtt_password.txt
   sb_masterkey:
     file: ./secrets/sb_masterkey.txt
+  node-red-admin-password:
+    file: ./secrets/node-red-admin-password.txt
+  sb-rest-api-password:
+    file: ./secrets/sb-rest-api-password.txt
 
 volumes:
   mosquitto_data:

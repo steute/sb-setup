@@ -11,6 +11,7 @@ The setup script automates the creation of:
 - **Docker Compose File**: Ready-to-use Docker Compose configuration
 - **Secure Passwords**: Randomly generated passwords stored in the `secrets/` directory
 - **Database Encryption Key**: Master key for encrypting sensitive data in the database
+- **Optional Node-RED Integration**: Optional Node-RED service setup with generated credentials and settings
 
 ## Prerequisites
 
@@ -37,6 +38,8 @@ Before running the setup script, ensure you have:
    ```
 
 3. Follow the interactive prompts (see detailed guide below)
+   - Choose whether to include Node-RED
+   - If enabled, note the additional Node-RED credentials shown at the end
 
 4. Once complete, start the services:
    ```bash
@@ -69,7 +72,7 @@ Do you want to continue and overwrite existing files? (y/N):
 
 ### Step 3: Docker Registry Selection
 
-It is recommended but not required to use the official `dhi.io` Docker registry for the latest and most secure images of the database, the mqtt broker and the Traefik reverse proxy.
+It is recommended but not required to use the official `dhi.io` Docker registry for the latest and most secure images of the database, the MQTT broker and the Traefik reverse proxy.
 To learn more about Docker Hardened Image (DHI) and its security benefits, visit [the Docker DHI docs](https://docs.docker.com/dhi/).
 
 The script will prompt:
@@ -83,7 +86,22 @@ Do you want to use the 'dhi.io' registry? (Y/n):
   - Follow the login prompts with your Docker Hub credentials
 - **n**: Uses alternative Docker images from the public Docker Hub registry
 
-### Step 4: Certificate Configuration
+### Step 4: Optional Node-RED Integration
+
+The script prompts whether Node-RED should be included:
+
+```
+Do you want to include a Node-RED instance? (y/N):
+```
+
+- **y**: Includes Node-RED in the generated `docker-compose.yml` and prepares Node-RED configuration
+  - Generates `secrets/node-red-admin-password.txt`
+  - Generates `secrets/sb-rest-api-password.txt`
+  - Creates `node-red/` and `node-red/data/`
+  - Copies `templates/settings.js` to `node-red/settings.js`
+- **N** (default): Removes the Node-RED service and Node-RED related secrets from the generated `docker-compose.yml`
+
+### Step 5: Certificate Configuration
 
 The script will generate a local Certificate Authority (CA) and sign certificates for all services. You can customize the certificate details or accept the defaults.
 
@@ -103,7 +121,7 @@ The script will then:
 - Generate certificates for MQTT broker, PostgreSQL, and Traefik (valid for 5-20 years)
 - Sign all certificates with the CA
 
-### Step 5: Initial Sensor Bridge Admin Password
+### Step 6: Initial Sensor Bridge Admin Password
 
 ```
 Do you want a randomly generated initial password? (Y/n):
@@ -114,7 +132,7 @@ Do you want a randomly generated initial password? (Y/n):
   - **Important**: Note this password down - you'll need it for first login
 - **n**: Prompts you to enter and confirm a custom password
 
-### Step 6: Traefik Certificate SAN Entries
+### Step 7: Traefik Certificate SAN Entries
 
 All external services (Sensor Bridge web interface, MQTT broker to connect Access Points) use the Traefik certificate. By default, it includes SAN entries for `localhost`, `sensorbridge`, `host.docker.internal`, and `127.0.0.1`.
 
@@ -137,7 +155,7 @@ Additional SAN entries:
 - IP addresses must be valid IPv4 or IPv6 addresses
 - Multiple entries should be comma-separated
 
-### Step 7: Setup Complete
+### Step 8: Setup Complete
 
 Upon successful completion, the script displays comprehensive information about your setup:
 
@@ -177,6 +195,26 @@ Password: <your-generated-password>
 Location: /path/to/secrets/mqtt_password.txt
 Example connection: wss://localhost:443/mqttproxy
 ```
+
+#### Node-RED Integration Details (If Enabled)
+
+```
+=== Node-RED Integration ===
+Create a Sensor Bridge REST API user with these credentials:
+Username: nodered
+Password: <generated-password>
+Password location: /path/to/secrets/sb-rest-api-password.txt
+
+Node-RED login URL: https://localhost/nodered/admin (or your server address)
+Node-RED Username: admin
+Node-RED Password: <generated-password>
+Password location: /path/to/secrets/node-red-admin-password.txt
+```
+
+Before using the integration, create a REST API user in Sensor Bridge with:
+
+- Username: `nodered`
+- Password: from `secrets/sb-rest-api-password.txt`
 
 #### Root Certificate Information
 
@@ -230,11 +268,16 @@ sb-setup/
 │   ├── traefik-external-key.pem        # Traefik private key
 │   ├── traefik-external.csr            # Certificate signing request
 │   └── traefik-tls-config.yaml         # Traefik TLS configuration
+├── node-red/                           # Optional: created when Node-RED is enabled
+│   ├── settings.js                     # Optional: Node-RED runtime settings
+│   └── data/                           # Optional: Node-RED data directory (uid/gid 1000:1000)
 └── secrets/
     ├── initial_sb_password.txt         # SensorBridge admin password
     ├── mqtt_password.txt               # MQTT client password
+    ├── node-red-admin-password.txt     # Optional: Node-RED admin password
     ├── postgres_password_pg.txt        # PostgreSQL password (for DB)
     ├── postgres_password_sb.txt        # PostgreSQL password (for SensorBridge)
+    ├── sb-rest-api-password.txt        # Optional: Sensor Bridge REST API password for Node-RED
     └── sb_masterkey.txt                # Database encryption key
 ```
 
@@ -246,6 +289,8 @@ sb-setup/
   - `initial_sb_password.txt` - SensorBridge web interface admin password
   - `mqtt_password.txt` - MQTT broker client password
   - `postgres_password_pg.txt` and `postgres_password_sb.txt` - PostgreSQL passwords
+  - `node-red-admin-password.txt` - Node-RED admin password (if Node-RED enabled)
+  - `sb-rest-api-password.txt` - Sensor Bridge REST API password for Node-RED user (if Node-RED enabled)
 - **Change default passwords** - Change the initial admin password after first login
 - **Do not commit secrets to version control** - ensure `.gitignore` excludes sensitive files
 - **Set appropriate file permissions** - the script automatically sets secure permissions, but verify after any manual changes
@@ -288,6 +333,16 @@ Once the services are running:
    - Password: Check `secrets/initial_sb_password.txt` or use the password displayed during setup
    - **Important**: You will have to change the password immediately after first login
 
+### Node-RED (If Enabled)
+
+1. Navigate to `https://localhost/nodered/admin` or `https://<server-address>/nodered/admin`
+2. Login with:
+   - Username: `admin`
+   - Password: `secrets/node-red-admin-password.txt`
+3. In Sensor Bridge, create a REST API user for Node-RED:
+   - Username: `nodered`
+   - Password: `secrets/sb-rest-api-password.txt`
+
 ## Resetting the Setup
 
 To completely remove all generated files and start fresh:
@@ -299,7 +354,7 @@ sudo ./setup.sh reset
 This will:
 
 1. Check if containers are running and prompt you to stop them
-2. Delete all generated directories: `ca/`, `mosquitto/`, `postgres/`, `traefik/`, `secrets/`
+2. Delete all generated directories: `ca/`, `mosquitto/`, `postgres/`, `traefik/`, `node-red/`, `secrets/`
 3. Remove the `docker-compose.yml` file
 
 **Before resetting**, stop and remove containers:
@@ -359,4 +414,6 @@ cat secrets/mqtt_password.txt            # MQTT client password
 cat secrets/sb_masterkey.txt             # Database encryption master key
 cat secrets/postgres_password_pg.txt     # PostgreSQL password (for DB)
 cat secrets/postgres_password_sb.txt     # PostgreSQL password (for SensorBridge)
+cat secrets/node-red-admin-password.txt  # Node-RED admin password (if enabled)
+cat secrets/sb-rest-api-password.txt     # Sensor Bridge REST API password for Node-RED (if enabled)
 ```
