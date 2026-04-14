@@ -33,7 +33,8 @@ if (
 ) {
   secretNodeRedAdminPassword = fs
     .readFileSync(process.env.NODE_RED_ADMIN_PASSWORD_FILE)
-    .toString();
+    .toString()
+    .split("\n")[0];
 } else {
   secretNodeRedAdminPassword = process.env.NODE_RED_ADMIN_PASSWORD;
 }
@@ -45,7 +46,8 @@ if (
 ) {
   secretNodeRedReadOnlyPassword = fs
     .readFileSync(process.env.NODE_RED_READONLY_PASSWORD_FILE)
-    .toString();
+    .toString()
+    .split("\n")[0];
 } else {
   secretNodeRedReadOnlyPassword = process.env.NODE_RED_READONLY_PASSWORD;
 }
@@ -57,7 +59,8 @@ if (
 ) {
   secretNodeRedCredentialSecret = fs
     .readFileSync(process.env.NODE_RED_CREDENTIAL_SECRET_FILE)
-    .toString();
+    .toString()
+    .split("\n")[0];
 } else {
   secretNodeRedCredentialSecret = process.env.NODE_RED_CREDENTIAL_SECRET;
 }
@@ -81,15 +84,6 @@ if (process.env.NODE_RED_ROOT_PATH) {
     ? nodeRedRootPath.slice(0, -1)
     : nodeRedRootPath;
 }
-
-// Info from the package.json will be exported as APP_VERSION and APP_DESCRIPTION
-const appVersion = require("./package.json").version || "0.0.0";
-const appDescription =
-  require("./package.json").description || "nexy Node-RED Application";
-process.env.APP_VERSION = appVersion;
-process.env.APP_DESCRIPTION = appDescription;
-console.info("App version: " + appVersion);
-console.info("App description: " + appDescription);
 
 module.exports = {
   /*******************************************************************************

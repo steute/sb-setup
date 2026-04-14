@@ -162,8 +162,7 @@ choose_docker_registry() {
         print_success "Docker Hub authentication successful"
         USE_DHI_IO=true
     else
-        print_warning "You have chosen not to use the 'dhi.io' registry"
-        print_info "You will need to provide alternative images for the required services"
+        print_info "You have chosen not to use the 'dhi.io' registry"
         USE_DHI_IO=false
     fi
 }
@@ -457,10 +456,57 @@ setup_node_red_config() {
 
     mkdir -p "${SCRIPT_DIR}/secrets"
 
-    openssl rand -base64 32 | tr '+/LlO' 'ps11o' | tr -d '=' > "${SCRIPT_DIR}/secrets/node-red-admin-password.txt"
+    openssl rand -base64 32 | tr '+/LlO' 'ps11o' | tr -d '=' > "${SCRIPT_DIR}/secrets/node-red-admin-password-plain.txt"
     openssl rand -base64 32 | tr '+/LlO' 'ps11o' | tr -d '=' > "${SCRIPT_DIR}/secrets/sb-rest-api-password.txt"
 
+    # Determine the Node-RED image tag from the generated docker-compose.yml.
+    local node_red_image
+    node_red_image=$(awk '
+        $1 == "node-red:" { in_node_red = 1; next }
+        in_node_red && $1 == "image:" { print $2; exit }
+        in_node_red && /^[^[:space:]]/ { in_node_red = 0 }
+    ' "${SCRIPT_DIR}/docker-compose.yml")
+
+    # Remove optional surrounding quotes in case the image value is quoted.
+    node_red_image="${node_red_image#\"}"
+    node_red_image="${node_red_image%\"}"
+
+    # fallback to default image if not found in docker-compose.yml
+    if [[ -z "$node_red_image" ]]; then
+        node_red_image="nodered/node-red:latest"
+        print_warning "Could not determine Node-RED image from docker-compose.yml, using default: $node_red_image"
+    fi
+
+    # Hash the plain password for Node-RED adminAuth secret file.
+    local node_red_admin_password_plain
+    local node_red_admin_password_hash
+    local node_red_hash_output
+
+    node_red_admin_password_plain=$(cat "${SCRIPT_DIR}/secrets/node-red-admin-password-plain.txt")
+    if [[ -z "$node_red_admin_password_plain" ]]; then
+        print_error "Node-RED admin plain password file is empty"
+        exit 1
+    fi
+
+    print_info "Hashing Node-RED admin password using temporary container image: $node_red_image"
+    if ! node_red_hash_output=$(printf "%s\n%s\n" "$node_red_admin_password_plain" "$node_red_admin_password_plain" | \
+        docker run --rm -i --entrypoint node-red-admin "$node_red_image" hash-pw 2>&1); then
+        print_error "Failed to hash Node-RED admin password with image: $node_red_image"
+        exit 1
+    fi
+
+    node_red_admin_password_hash=$(printf "%s\n" "$node_red_hash_output" | tr -d '\r' | \
+        grep -Eo '\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}' | tail -n 1)
+
+    if [[ -z "$node_red_admin_password_hash" ]]; then
+        print_error "Generated Node-RED admin password hash is empty or invalid"
+        exit 1
+    fi
+
+    printf "%s\n" "$node_red_admin_password_hash" > "${SCRIPT_DIR}/secrets/node-red-admin-password.txt"
+
     chmod 640 "${SCRIPT_DIR}/secrets/node-red-admin-password.txt"
+    chmod 640 "${SCRIPT_DIR}/secrets/node-red-admin-password-plain.txt"
     chmod 640 "${SCRIPT_DIR}/secrets/sb-rest-api-password.txt"
 
     mkdir -p "$NODE_RED_DIR/data"
@@ -700,8 +746,8 @@ main() {
         echo ""
         print_info "Node-RED login URL: https://localhost/nodered/admin (or your server address)"
         print_info "Node-RED Username: admin"
-        print_info "Node-RED Password: $(cat ${SCRIPT_DIR}/secrets/node-red-admin-password.txt)"
-        print_info "Password location: ${SCRIPT_DIR}/secrets/node-red-admin-password.txt"
+        print_info "Node-RED Password: $(cat ${SCRIPT_DIR}/secrets/node-red-admin-password-plain.txt)"
+        print_info "Password location: ${SCRIPT_DIR}/secrets/node-red-admin-password-plain.txt"
         echo ""
     fi
     

@@ -155,7 +155,7 @@ services:
       - host.docker.internal:host-gateway
     environment:
       - TZ=${TZ:-Europe/Berlin}
-      - LANG=${LANG:-de_DE.UTF-8}
+      - LANG=${LANG:-en_US.UTF-8}
       # Sensor Bridge REST API configuration
       - SB_REST_API_PASSWORD_FILE=/run/secrets/sb-rest-api-password
       - SB_REST_API_USER=${SB_REST_API_USER:-nodered}
@@ -167,27 +167,41 @@ services:
       - NODE_RED_ADMIN_PASSWORD_FILE=/run/secrets/node-red-admin-password
       - NODE_RED_ADMIN_USERNAME=${NODE_RED_ADMIN_USERNAME:-admin}
       - NODE_RED_ROOT_PATH=/nodered
+    networks:
+      - default
     labels:
-      # Traefik configuration to expose Node-RED at https://localhost/nodered/admin/
-      # does not work yet, has to be investigated...
+      # Traefik configuration to expose Node-RED at https://[ip or hostname]/nodered/
       - "traefik.enable=true"
-      - "traefik.http.routers.node-red.rule=PathPrefix(`/nodered`)"
-      - "traefik.http.routers.node-red.entrypoints=websecure"
-      - "traefik.http.routers.node-red.tls=true"
-      - "traefik.http.routers.node-red.service=node-red-svc"
-      - "traefik.http.routers.node-red.priority=20"
-      - "traefik.http.services.node-red-svc.loadbalancer.server.port=1880"
+      - "traefik.http.routers.nodered.rule=PathPrefix(`/nodered`)"
+      - "traefik.http.routers.nodered.entrypoints=websecure"
+      - "traefik.http.routers.nodered.tls=true"
+      - "traefik.http.routers.nodered.service=nodered-svc"
+      - "traefik.http.services.nodered-svc.loadbalancer.server.port=1880"
     secrets:
       - sb-rest-api-password
       - node-red-admin-password
     volumes:
-      # for WSL: sudo chown 1000:1000 node-red/data/
+      # Chown data directory to 1000:1000 (node-red:node-red) to allow Node-RED to write data.
+      # See https://github.com/node-red/node-red-docker/wiki/Permissions-and-Persistence
       - ./node-red/data:/data
+      # Using a customised settings.js for additinal configuration.
       - ./node-red/settings.js:/usr/src/node-red/custom-settings.js:ro
     command: >
       node-red
       --userDir /data
       --settings /usr/src/node-red/custom-settings.js
+    healthcheck:
+      # Node-RED healthcheck has to be modified because the settings.js is relocated.
+      # The admin URL has to match the NODE_RED_ROOT_PATH environment variable.
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://127.0.0.1:1880/nodered/admin/ || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
 networks:
   default:
