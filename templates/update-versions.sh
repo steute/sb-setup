@@ -44,10 +44,7 @@ for img in "${images[@]}"; do
   fi
 done
 
-date_str="$(date "+%b %d, %Y" | sed 's/ 0/ /')"
-if [[ "$date_str" != *.* ]]; then
-  date_str="${date_str/ /. /}"
-fi
+date_str="$(date "+%b. %d, %Y" | sed 's/ 0/ /')"
 
 block_file="$(mktemp)"
 {

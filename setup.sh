@@ -16,6 +16,8 @@ MOSQUITTO_DIR="${SCRIPT_DIR}/mosquitto"
 POSTGRES_DIR="${SCRIPT_DIR}/postgres"
 NODE_RED_DIR="${SCRIPT_DIR}/node-red"
 TRAEFIK_DIR="${SCRIPT_DIR}/traefik"
+MOSQUITTO_DHI_IMAGE="dhi.io/eclipse-mosquitto:2.1"
+MOSQUITTO_PUBLIC_IMAGE="eclipse-mosquitto:2.1-alpine"
 
 # Functions
 print_error() {
@@ -32,6 +34,21 @@ print_info() {
 
 print_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+is_macos_host() {
+    [[ "$(uname -s)" == "Darwin" ]]
+}
+
+portable_sed_in_place() {
+    local expression="$1"
+    local file_path="$2"
+
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$expression" "$file_path"
+    else
+        sed -i '' "$expression" "$file_path"
+    fi
 }
 
 # 1. Check system requirements
@@ -201,15 +218,16 @@ setup_docker_compose() {
     # If not using dhi.io, remove the registry prefix from all image references
     if [[ "$USE_DHI_IO" == false ]]; then
         print_info "Removing dhi.io registry prefix from image references..."
-        sed -i 's|dhi\.io/||g' "$COMPOSE_FILE"
+        portable_sed_in_place "s|${MOSQUITTO_DHI_IMAGE}|${MOSQUITTO_PUBLIC_IMAGE}|g" "$COMPOSE_FILE"
+        portable_sed_in_place 's|dhi\.io/||g' "$COMPOSE_FILE"
         print_success "Updated docker-compose.yml to use alternative images"
     fi
 
     if [[ "$USE_NODE_RED" == false ]]; then
         print_info "Removing Node-RED service and secrets from docker-compose.yml..."
-        sed -i '/^  node-red:$/,/^networks:$/d' "$COMPOSE_FILE"
-        sed -i '/^  node-red-admin-password:$/,+1d' "$COMPOSE_FILE"
-        sed -i '/^  sb-rest-api-password:$/,+1d' "$COMPOSE_FILE"
+        portable_sed_in_place '/^  node-red:$/,/^networks:$/d' "$COMPOSE_FILE"
+        portable_sed_in_place '/^  node-red-admin-password:$/,+1d' "$COMPOSE_FILE"
+        portable_sed_in_place '/^  sb-rest-api-password:$/,+1d' "$COMPOSE_FILE"
         print_success "Removed Node-RED service and secrets from docker-compose.yml"
     fi
 }
@@ -284,14 +302,20 @@ create_mqtt_broker_certificate() {
         -out mosquitto/mqtt-broker-internal.pem -days 7300 -sha256 \
         -extfile <(printf "subjectAltName=DNS:mosquitto,DNS:localhost,DNS:host.docker.internal,IP:127.0.0.1")
 
-    # Private keys need to be readable by root and the group of the process running the container with permissions 640
-    chmod 640 mosquitto/mqtt-broker-internal-key.pem
-    if [[ "$USE_DHI_IO" == false ]]; then
-        # If not using dhi.io, we assume the mosquitto container will run with user 1883
-        sudo chown "0:1883" mosquitto/mqtt-broker-internal-key.pem
+    # On macOS, Docker Desktop must be able to read the host file as the invoking user.
+    if is_macos_host && [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        chmod 600 mosquitto/mqtt-broker-internal-key.pem
+        sudo chown "${SUDO_UID}:${SUDO_GID}" mosquitto/mqtt-broker-internal-key.pem
     else
-        # If using dhi.io, the mosquitto container runs with user 65532 (nobody), so we set group ownership to 65532
-        sudo chown "0:65532" mosquitto/mqtt-broker-internal-key.pem
+        # Private keys need to be readable by root and the group of the process running the container with permissions 640.
+        chmod 640 mosquitto/mqtt-broker-internal-key.pem
+        if [[ "$USE_DHI_IO" == false ]]; then
+            # If not using dhi.io, we assume the mosquitto container will run with user 1883.
+            sudo chown "0:1883" mosquitto/mqtt-broker-internal-key.pem
+        else
+            # If using dhi.io, the mosquitto container runs with user 65532 (nobody), so we set group ownership to 65532.
+            sudo chown "0:65532" mosquitto/mqtt-broker-internal-key.pem
+        fi
     fi
     
     print_success "MQTT broker certificate created"
@@ -322,16 +346,39 @@ setup_mosquitto_password() {
     print_info "Generating unique password for MQTT client..."
     openssl rand -base64 32 | tr '+/LlO' 'ps11o' | tr -d '=' > secrets/mqtt_password.txt
     print_success "MQTT password generated and stored in secrets/mqtt_password.txt"
-    
-    # Create mosquitto password file
-    print_info "Creating Mosquitto password file with mosquitto_passwd tool..."
-    sudo touch "$MOSQUITTO_DIR/mosquitto.pass"
-    
-    # Run mosquitto_passwd inside the container
-    print_info "Creating Mosquitto password file with mqtt_passwd tool..."
-    docker run --rm \
-      -v "$MOSQUITTO_DIR":/tmp/mosquitto eclipse-mosquitto:2.0 \
-      mosquitto_passwd -b -c /tmp/mosquitto/mosquitto.pass mqttclient "$(cat ./secrets/mqtt_password.txt)"
+
+        local mosquitto_group="1883"
+        local mosquitto_image="$MOSQUITTO_PUBLIC_IMAGE"
+        if [[ "$USE_DHI_IO" == true ]]; then
+            mosquitto_group="65532"
+            mosquitto_image="$MOSQUITTO_DHI_IMAGE"
+        fi
+
+        local temp_mosquitto_pass
+        local mqtt_password
+        local mosquitto_passwd_container
+        temp_mosquitto_pass=$(mktemp)
+        mqtt_password=$(cat ./secrets/mqtt_password.txt)
+
+        # Generate the password file inside a temporary container and copy it back to the host.
+        print_info "Creating Mosquitto password file with mosquitto_passwd tool..."
+        mosquitto_passwd_container=$(docker create \
+            --user 0:0 \
+            --entrypoint /usr/bin/mosquitto_passwd \
+            "$mosquitto_image" \
+            -b -c /tmp/mosquitto.pass mqttclient "$mqtt_password")
+        docker start -a "$mosquitto_passwd_container" >/dev/null
+        docker cp "$mosquitto_passwd_container:/tmp/mosquitto.pass" "$temp_mosquitto_pass"
+        docker rm -f "$mosquitto_passwd_container" >/dev/null
+
+        if is_macos_host && [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+            sudo install -m 600 "$temp_mosquitto_pass" "$MOSQUITTO_DIR/mosquitto.pass"
+            sudo chown "${SUDO_UID}:${SUDO_GID}" "$MOSQUITTO_DIR/mosquitto.pass"
+        else
+            sudo install -m 640 "$temp_mosquitto_pass" "$MOSQUITTO_DIR/mosquitto.pass"
+            sudo chown "0:${mosquitto_group}" "$MOSQUITTO_DIR/mosquitto.pass"
+        fi
+        rm -f "$temp_mosquitto_pass"
     
     print_success "Mosquitto password file created"
 }
@@ -357,9 +404,14 @@ create_postgres_certificate() {
         -out "$POSTGRES_DIR/postgres-internal.pem" -days 7300 -sha256 \
         -extfile <(printf "subjectAltName=DNS:postgres,DNS:localhost,DNS:host.docker.internal,IP:127.0.0.1")
 
-    # Private keys need to be readable by root and the group of the process running the container with permissions 640
-    chmod 640 "$POSTGRES_DIR/postgres-internal-key.pem"
-    sudo chown "0:70" "$POSTGRES_DIR/postgres-internal-key.pem"
+    if is_macos_host && [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        chmod 600 "$POSTGRES_DIR/postgres-internal-key.pem"
+        sudo chown "${SUDO_UID}:${SUDO_GID}" "$POSTGRES_DIR/postgres-internal-key.pem"
+    else
+        # Private keys need to be readable by root and the group of the process running the container with permissions 640.
+        chmod 640 "$POSTGRES_DIR/postgres-internal-key.pem"
+        sudo chown "0:70" "$POSTGRES_DIR/postgres-internal-key.pem"
+    fi
 
     print_success "PostgreSQL certificate created"
     print_info "PostgreSQL certificate: ${POSTGRES_DIR}/postgres-internal.pem"
@@ -374,8 +426,13 @@ setup_postgres_config() {
     cp templates/pg_hba.conf "$POSTGRES_DIR/pg_hba.conf"
     mkdir -p "$POSTGRES_DIR/data"
 
-    print_info "Changing ownership of postgres folder to group 70 (postgres)..."
-    sudo chown -R 0:70 "$POSTGRES_DIR"
+    if is_macos_host && [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        print_info "Changing ownership of postgres folder to the invoking macOS user..."
+        sudo chown -R "${SUDO_UID}:${SUDO_GID}" "$POSTGRES_DIR"
+    else
+        print_info "Changing ownership of postgres folder to group 70 (postgres)..."
+        sudo chown -R 0:70 "$POSTGRES_DIR"
+    fi
     sudo chmod 0775 "$POSTGRES_DIR/data"
 
     print_success "PostgreSQL configuration prepared"
@@ -510,7 +567,11 @@ setup_node_red_config() {
     chmod 640 "${SCRIPT_DIR}/secrets/sb-rest-api-password.txt"
 
     mkdir -p "$NODE_RED_DIR/data"
-    sudo chown 1000:1000 "$NODE_RED_DIR/data"
+    if is_macos_host && [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        sudo chown "${SUDO_UID}:${SUDO_GID}" "$NODE_RED_DIR/data"
+    else
+        sudo chown 1000:1000 "$NODE_RED_DIR/data"
+    fi
 
     cp "${SCRIPT_DIR}/templates/settings.js" "$NODE_RED_DIR/settings.js"
 
@@ -642,14 +703,19 @@ create_traefik_certificate() {
         -out "$TRAEFIK_DIR/traefik-external.pem" -days 1825 -sha256 \
         -extfile <(printf "%s" "$san_string")
 
-    # Private keys need to be readable by root and the group of the process running the container with permissions 640
-    sudo chmod 640 "$TRAEFIK_DIR/traefik-external-key.pem"
-    if [[ "$USE_DHI_IO" == false ]]; then
-        # If not using dhi.io, we assume the traefik container will run with user 0
-        sudo chown "0:0" "$TRAEFIK_DIR/traefik-external-key.pem"
+    if is_macos_host && [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        sudo chmod 600 "$TRAEFIK_DIR/traefik-external-key.pem"
+        sudo chown "${SUDO_UID}:${SUDO_GID}" "$TRAEFIK_DIR/traefik-external-key.pem"
     else
-        # If using dhi.io, the traefik container runs with user 65532
-        sudo chown "0:65532" "${TRAEFIK_DIR}/traefik-external-key.pem"
+        # Private keys need to be readable by root and the group of the process running the container with permissions 640.
+        sudo chmod 640 "$TRAEFIK_DIR/traefik-external-key.pem"
+        if [[ "$USE_DHI_IO" == false ]]; then
+            # If not using dhi.io, we assume the traefik container will run with user 0.
+            sudo chown "0:0" "$TRAEFIK_DIR/traefik-external-key.pem"
+        else
+            # If using dhi.io, the traefik container runs with user 65532.
+            sudo chown "0:65532" "${TRAEFIK_DIR}/traefik-external-key.pem"
+        fi
     fi
 
     print_success "Traefik certificate created"
@@ -661,12 +727,18 @@ create_traefik_certificate() {
 set_permissions() {
     print_info "Setting permissions for generated secrets..."
 
-    # Secrets, used by the Sensor Bridge container, need to be readable by root and group 1000 (root) with permissions 640
-    sudo chown "0:1000" "${SCRIPT_DIR}/secrets"/*.txt
-    sudo chmod 0640 "${SCRIPT_DIR}/secrets"/*.txt
+    if is_macos_host && [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        # Docker Desktop on macOS reads secret source files through the invoking user context.
+        sudo chown "${SUDO_UID}:${SUDO_GID}" "${SCRIPT_DIR}/secrets"/*.txt
+        sudo chmod 0600 "${SCRIPT_DIR}/secrets"/*.txt
+    else
+        # Secrets, used by the Sensor Bridge container, need to be readable by root and group 1000 with permissions 640.
+        sudo chown "0:1000" "${SCRIPT_DIR}/secrets"/*.txt
+        sudo chmod 0640 "${SCRIPT_DIR}/secrets"/*.txt
 
-    # The postgres password secret needs to be readable by the postgres user (group 70) with permissions 640
-    sudo chown "0:70" "${SCRIPT_DIR}/secrets/postgres_password_pg.txt"
+        # The postgres password secret needs to be readable by the postgres user (group 70) with permissions 640.
+        sudo chown "0:70" "${SCRIPT_DIR}/secrets/postgres_password_pg.txt"
+    fi
 }
 
 # Main execution
