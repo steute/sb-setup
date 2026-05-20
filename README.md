@@ -1,6 +1,6 @@
 # Secure Sensor Bridge Docker Setup
 
-Version 0.1.0
+Version 0.3.0
 
 ## About
 
@@ -29,14 +29,14 @@ Please refer to the document [`USAGE.md`](./USAGE.md) for instructions on how to
 
 ## Latest Image Versions
 
-As of May, 20th, 2026, the script generates a Docker Compose file using these image versions:
+As of May. 20, 2026, the script generates a Docker Compose file using these image versions:
 
 - `steute/sensor-bridge:3.0.4`
-- `dhi.io/postgres:18.4-alpine3.23` or `postgres:18.4-alpine3.23`
-- `dhi.io/eclipse-mosquitto:2.1` or `eclipse-mosquitto:2.1-alpine`
+- `postgres:18.4-alpine3.23`
+- `eclipse-mosquitto:2.1-alpine`
 - `lscr.io/linuxserver/socket-proxy:latest`
-- `dhi.io/traefik:3.7` or `traefik:3.7`
-- `nodered/node-red:4.1.10-22` (optional)
+- `traefik:3.7`
+- `nodered/node-red:4.1.10-22`
 
 Other versions of the Postgres, Mosquitto, Socket-Proxy, and Traefik images may work, but Steute has not tested them.
 

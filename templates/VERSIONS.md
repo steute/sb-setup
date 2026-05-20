@@ -2,9 +2,9 @@
 
 If you update the versions, you have to update these files:
 
-- `README.md` (under "Latest Image Versions")
-- `templates/docker-compose.yml`
-- `setup.sh` (the mosquitto versions)
+- `templates/docker-compose.yml` - edit this file first
+- `README.md` (under "Latest Image Versions", use the `update-versions.sh` script)
+- `setup.sh` (the mosquitto versions, used to create the password file for the mosquitto user)
 
 ## Sensor Bridge
 
