@@ -1,7 +1,7 @@
 services:
   sensorbridge:
     # visit https://github.com/steute/sb-setup for latest image versions
-    image: steute/sensor-bridge:3.0.0
+    image: steute/sensor-bridge:3.0.4
     # running as node:node (1000:1000)
     container_name: sensorbridge
     restart: unless-stopped
@@ -51,7 +51,7 @@ services:
       - sb_masterkey
 
   postgres:
-    image: dhi.io/postgres:18.1-alpine3.22
+    image: dhi.io/postgres:18.4-alpine3.23
     # running as postgres:postgres (70:70)
     container_name: postgres
     restart: unless-stopped
@@ -61,21 +61,21 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password_pg
     volumes:
       - ./postgres/data:/var/lib/postgresql
-      - ./postgres/postgres-internal.pem:/var/lib/postgresql/postgres-internal.pem:ro
-      - ./postgres/postgres-internal-key.pem:/var/lib/postgresql/postgres-internal-key.pem:ro
-      - ./postgres/pg_hba.conf:/var/lib/postgresql/pg_hba.conf:ro
+      - ./postgres/postgres-internal.pem:/etc/postgresql/postgres-internal.pem:ro
+      - ./postgres/postgres-internal-key.pem:/etc/postgresql/postgres-internal-key.pem:ro
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     secrets:
       - postgres_password_pg
     command: >
       -c ssl=on
-      -c ssl_cert_file=/var/lib/postgresql/postgres-internal.pem
-      -c ssl_key_file=/var/lib/postgresql/postgres-internal-key.pem
-      -c hba_file=/var/lib/postgresql/pg_hba.conf
+      -c ssl_cert_file=/etc/postgresql/postgres-internal.pem
+      -c ssl_key_file=/etc/postgresql/postgres-internal-key.pem
+      -c hba_file=/etc/postgresql/pg_hba.conf
 
   mosquitto:
-    image: dhi.io/eclipse-mosquitto:2.0
+    image: dhi.io/eclipse-mosquitto:2.1
     # DHI image running as nonroot:nonroot (65532:65532)
     # official image runs as mosquitto:mosquitto (1883:1883)
     container_name: mosquitto
@@ -118,7 +118,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
   traefik:
-    image: dhi.io/traefik:3.6
+    image: dhi.io/traefik:3.7
     # DHI version of Traefik runs as nonroot:nonroot (65532:65532)
     # Standard Traefik image runs as root (see https://github.com/traefik/traefik/issues/11750)
     container_name: traefik
@@ -147,7 +147,7 @@ services:
       - socket_proxy
 
   node-red:
-    image: nodered/node-red:4.1.8-22
+    image: nodered/node-red:4.1.10-22
     container_name: node-red
     # runs as user node-red (uid 1000) and group node-red (gid 1000)
     restart: unless-stopped

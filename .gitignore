@@ -53,3 +53,6 @@ $RECYCLE.BIN/
 .directory
 .Trash-*
 .nfs*
+
+# Node-RED
+node-red
